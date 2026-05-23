@@ -1,0 +1,27 @@
+{
+  "name": "sql2text",
+  "version": "1.0.0",
+  "description": "MCP Server providing read-only database access for AI models to explore schemas, suggest queries, and generate code",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "sql2text": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.1",
+    "sql.js": "^1.12.0",
+    "mysql2": "^3.12.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3"
+  }
+}

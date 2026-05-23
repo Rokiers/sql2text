@@ -1,0 +1,23 @@
+{
+  "connections": [
+    {
+      "name": "my-mysql",
+      "type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "user": "readonly_user",
+      "password": "your_password_here",
+      "database": "my_database"
+    },
+    {
+      "name": "my-sqlite",
+      "type": "sqlite",
+      "path": "./data/local.db"
+    }
+  ],
+  "settings": {
+    "defaultLimit": 100,
+    "queryTimeoutMs": 30000,
+    "logQueries": false
+  }
+}
