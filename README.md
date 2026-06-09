@@ -1,42 +1,30 @@
 # sql2text
 
-> MCP Server — read-only database access for AI coding agents. Let your AI assistant explore schemas, suggest queries, and generate code from your database — safely.
+MCP Server providing **read-only** database access for AI coding agents (opencode, Claude Desktop, Cursor, etc.) to explore schemas, run queries, and get SQL suggestions. Zero write capability — safe for production databases.
 
-## What it does
+## Features
 
-sql2text is an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that connects AI models (Claude Code, Reasonix, Cursor, etc.) to your **MySQL** or **SQLite** databases. All access is strictly read-only — the server enforces a SQL allowlist at the query-validation layer, so the model can explore and query but never mutate data.
+- **Read-only by design** — SQL whitelist (SELECT/SHOW/DESCRIBE/EXPLAIN only), blacklist for DML/DDL, MySQL session-level READ ONLY, multi-statement injection guard, automatic LIMIT enforcement
+- **10 MCP tools** — list databases, list tables, describe table, schema overview, sample data, query execution, EXPLAIN analysis, index/foreign key inspection, and smart query suggestions
+- **Multi-driver** — MySQL, SQLite (sql.js, no native compilation needed)
+- **Zero-config** — drop `config.json` with connection info, add to opencode config, done
 
-### Tools exposed to the AI
-
-| Tool | Description |
-|---|---|
-| `list_databases` | List all databases on the server |
-| `list_tables` | List all tables in a database |
-| `describe_table` | Full structure: columns, indexes, foreign keys, row count |
-| `get_schema_overview` | Complete schema at a glance — all tables, columns, PKs, FKs |
-| `query` | Execute read-only SQL (SELECT / SHOW / DESCRIBE / EXPLAIN / WITH) |
-| `explain_query` | Run EXPLAIN on a query to see the execution plan |
-| `get_table_indexes` | List indexes on a table |
-| `get_foreign_keys` | List foreign-key relationships for a table |
-| `suggest_queries` | Generate useful starter queries based on table structure |
-
-## Quick start
-
-### 1. Install
+## Quick Start
 
 ```bash
-npm install -g sql2text
+git clone <this-repo>
+cd sql2text
+npm install
+npm run build
 ```
 
-### 2. Configure
-
-Create a `config.json`:
+### 1. Configure database connection
 
 ```json
 {
   "connections": [
     {
-      "name": "my-db",
+      "name": "my-mysql",
       "type": "mysql",
       "host": "localhost",
       "port": 3306,
@@ -47,137 +35,80 @@ Create a `config.json`:
   ],
   "settings": {
     "defaultLimit": 100,
-    "queryTimeoutMs": 30000,
-    "logQueries": false
+    "queryTimeoutMs": 30000
   }
 }
 ```
 
-For SQLite:
+### 2. Add to opencode / Claude Desktop / Cursor
+
+**opencode** — add to `~/.config/opencode/opencode.json`:
 
 ```json
 {
-  "connections": [
-    {
-      "name": "my-sqlite",
-      "type": "sqlite",
-      "path": "./data/local.db"
+  "mcp": {
+    "sql2text": {
+      "type": "local",
+      "command": ["node", "/path/to/sql2text/dist/index.js"],
+      "environment": {
+        "SQL2TEXT_CONFIG": "/path/to/sql2text/config.json"
+      },
+      "enabled": true
     }
-  ]
+  }
 }
 ```
 
-### 3. Register with your AI tool
-
-**Reasonix** (`~/.reasonix/config.json`):
+**Claude Desktop** — add to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "sql2text": {
-      "command": "sql2text",
+      "command": "node",
+      "args": ["/path/to/sql2text/dist/index.js"],
       "env": {
-        "SQL2TEXT_CONFIG": "/path/to/your/config.json"
+        "SQL2TEXT_CONFIG": "/path/to/sql2text/config.json"
       }
     }
   }
 }
 ```
 
-**Claude Code** (`.mcp.json` or `~/.claude/mcp.json`):
+## MCP Tools
 
-```json
-{
-  "mcpServers": {
-    "sql2text": {
-      "command": "sql2text",
-      "env": {
-        "SQL2TEXT_CONFIG": "/path/to/your/config.json"
-      }
-    }
-  }
-}
-```
-
-### 4. Use it
-
-Start a session with your AI agent and ask things like:
-
-- *"Show me the schema of my database"*
-- *"What tables are related to `orders`?"*
-- *"Write a query to find the top 10 customers by revenue"*
-- *"Suggest indexes that might speed up this query"*
-
-## Security: read-only by design
-
-sql2text enforces read-only access at **two independent layers**:
-
-1. **SQL allowlist** — every query is validated against a whitelist of allowed statement types (`SELECT`, `SHOW`, `DESCRIBE`, `EXPLAIN`, `WITH`). INSERT/UPDATE/DELETE/DROP/ALTER and 30+ other mutation keywords are statically blocked before execution. Multiple-statement injection (semicolons) is also detected and rejected.
-
-2. **Session-level enforcement** (MySQL) — the driver sets `SET SESSION TRANSACTION READ ONLY` on each connection, so even if the agent generated a mutation (it can't — layer 1 blocks it), the database server itself would reject it.
-
-## Database support
-
-| Database | Status | Driver |
-|---|---|---|
-| MySQL / MariaDB | ✅ Supported | `mysql2` |
-| SQLite | ✅ Supported | `sql.js` (in-memory, no native deps) |
-| PostgreSQL | 🔜 Planned | — |
-
-## Configuration reference
-
-### `connections` (required)
-
-Array of connection objects. The first connection is used as the active one.
-
-**MySQL connection:**
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | ✅ | — | Display name |
-| `type` | `"mysql"` | ✅ | — | Connection type |
-| `host` | string | ✅ | — | Hostname or IP |
-| `port` | number | — | `3306` | Port |
-| `user` | string | ✅ | — | Username |
-| `password` | string | ✅ | — | Password |
-| `database` | string | ✅ | — | Default database |
-
-**SQLite connection:**
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | ✅ | — | Display name |
-| `type` | `"sqlite"` | ✅ | — | Connection type |
-| `path` | string | ✅ | — | Path to `.db` file |
-
-### `settings` (optional)
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `defaultLimit` | number | `100` | Max rows returned by `query` |
-| `queryTimeoutMs` | number | `30000` | Query timeout in ms |
-| `logQueries` | boolean | `false` | Log every query to stderr |
-
-### Environment variables
-
-| Variable | Description |
+| Tool | Description |
 |---|---|
-| `SQL2TEXT_CONFIG` | Path to config file (overrides `./config.json`) |
+| `list_databases` | List all available databases |
+| `list_tables` | List all tables in a database |
+| `describe_table` | Full table structure — columns, indexes, foreign keys, row count |
+| `get_schema_overview` | Complete database schema overview with all tables |
+| `get_indexes` | Show indexes for a table |
+| `get_foreign_keys` | Show foreign key relationships |
+| `sample_data` | Preview first N rows from a table |
+| `query` | Execute read-only SQL (SELECT/SHOW/DESCRIBE/EXPLAIN only) |
+| `explain_query` | Analyze query execution plan |
+| `suggest_query` | Get query suggestions based on table schema |
 
-## Architecture
+## Security
 
-```
-src/
-├── index.ts          # Entry point — CLI + MCP server bootstrap
-├── server.ts         # Tool registration (list_databases, query, etc.)
-├── config.ts         # Config loading + Zod validation
-├── drivers/
-│   ├── base.ts       # DatabaseDriver interface
-│   ├── mysql.ts      # MySQL driver (mysql2 connection pool)
-│   └── sqlite.ts     # SQLite driver (sql.js in-process)
-└── guards/
-    └── readonly.ts   # SQL allowlist validation + multi-statement detection
-```
+- **Whitelist**: SELECT, SHOW, DESCRIBE, EXPLAIN, USE, SET, WITH (CTE)
+- **Blacklist**: INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, REPLACE, GRANT, REVOKE, KILL, and more
+- **Session guard**: `SET SESSION TRANSACTION READ ONLY` (MySQL), `PRAGMA query_only = ON` (SQLite)
+- **Multi-statement injection**: Semicolons inside string literals are ignored, multiple bare statements blocked
+- **Auto LIMIT**: Every SELECT auto-appends `LIMIT` (default 100) if not present
+
+## Story
+
+sql2text was born from a practical need: I manage a MySQL database with 227 tables and wanted AI coding agents to help me understand and query it — without any risk of data modification. This MCP server bridges that gap, giving AI assistants structured, safe, read-only access to explore schemas, suggest queries, and help with data analysis.
+
+## Roadmap
+
+- [ ] Multi-connection support (query across multiple databases in one session)
+- [ ] ORM code generation (TypeORM, Prisma, Drizzle, Sequelize, SQLAlchemy)
+- [ ] PostgreSQL and SQL Server drivers
+- [ ] ER diagram text output from foreign key relationships
+- [ ] Export schema as Markdown / JSON / SQLAlchemy models
 
 ## License
 
