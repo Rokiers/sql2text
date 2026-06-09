@@ -2,12 +2,46 @@
 
 MCP Server providing **read-only** database access for AI coding agents (opencode, Claude Desktop, Cursor, etc.) to explore schemas, run queries, and get SQL suggestions. Zero write capability — safe for production databases.
 
+Built with the official MCP [`Server`](https://modelcontextprotocol.info/zh-cn/docs/concepts/tools/) + `setRequestHandler` API (not the deprecated `server.tool()` wrapper). Compliant with [MCP Specification 2024-11-05](https://modelcontextprotocol.info/zh-cn/specification/2024-11-05/).
+
 ## Features
 
 - **Read-only by design** — SQL whitelist (SELECT/SHOW/DESCRIBE/EXPLAIN only), blacklist for DML/DDL, MySQL session-level READ ONLY, multi-statement injection guard, automatic LIMIT enforcement
 - **10 MCP tools** — list databases, list tables, describe table, schema overview, sample data, query execution, EXPLAIN analysis, index/foreign key inspection, and smart query suggestions
 - **Multi-driver** — MySQL, SQLite (sql.js, no native compilation needed)
 - **Zero-config** — drop `config.json` with connection info, add to opencode config, done
+- **Standard MCP API** — Uses `Server` + `setRequestHandler(ListToolsRequestSchema)` + `setRequestHandler(CallToolRequestSchema)`, the canonical pattern per [MCP docs](https://modelcontextprotocol.info/zh-cn/docs/concepts/tools/)
+
+## MCP API Pattern
+
+This project follows the official MCP low-level API. Tools are registered via two request handlers:
+
+```typescript
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+
+const server = new Server(
+  { name: "sql2text", version: "1.0.0" },
+  { capabilities: { tools: {} } }
+);
+
+// Register tool list
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [{ name: "describe_table", description: "...", inputSchema: { ... } }, ...]
+}));
+
+// Handle tool execution
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+  // dispatch to appropriate handler
+  return { content: [{ type: "text", text: "..." }] };
+});
+```
+
+Unlike the deprecated `server.tool(name, desc, schema, fn)` convenience wrapper, this uses the same pattern as the [official MCP documentation](https://modelcontextprotocol.info/zh-cn/docs/concepts/tools/#%e5%ae%9e%e7%8e%b0%e5%b7%a5%e5%85%b7) and is compatible with all MCP clients.
 
 ## Quick Start
 
