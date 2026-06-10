@@ -2,7 +2,7 @@
 
 MCP Server providing **read-only** database access for AI coding agents (opencode, Claude Desktop, Cursor, etc.) to explore schemas, run queries, and get SQL suggestions. Zero write capability — safe for production databases.
 
-Built with the official MCP [`Server`](https://modelcontextprotocol.info/zh-cn/docs/concepts/tools/) + `setRequestHandler` API (not the deprecated `server.tool()` wrapper). Compliant with [MCP Specification 2024-11-05](https://modelcontextprotocol.info/zh-cn/specification/2024-11-05/).
+Built with `McpServer.registerTool()` — the current MCP SDK 1.x API. Compliant with [MCP Specification 2024-11-05](https://modelcontextprotocol.info/zh-cn/specification/2024-11-05/).
 
 ## Features
 
@@ -10,38 +10,38 @@ Built with the official MCP [`Server`](https://modelcontextprotocol.info/zh-cn/d
 - **10 MCP tools** — list databases, list tables, describe table, schema overview, sample data, query execution, EXPLAIN analysis, index/foreign key inspection, and smart query suggestions
 - **Multi-driver** — MySQL, SQLite (sql.js, no native compilation needed)
 - **Zero-config** — drop `config.json` with connection info, add to opencode config, done
-- **Standard MCP API** — Uses `Server` + `setRequestHandler(ListToolsRequestSchema)` + `setRequestHandler(CallToolRequestSchema)`, the canonical pattern per [MCP docs](https://modelcontextprotocol.info/zh-cn/docs/concepts/tools/)
+- **Standard MCP API** — Uses `McpServer.registerTool()` with Zod schemas for automatic input validation and JSON Schema generation
 
 ## MCP API Pattern
 
-This project follows the official MCP low-level API. Tools are registered via two request handlers:
+Tools are registered using `McpServer.registerTool()` — the non-deprecated high-level API. Each tool declares its input schema as a Zod object; the SDK automatically validates parameters, generates JSON Schema, and handles the `tools/list` / `tools/call` protocol.
 
 ```typescript
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
-const server = new Server(
-  { name: "sql2text", version: "1.0.0" },
-  { capabilities: { tools: {} } }
-);
-
-// Register tool list
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [{ name: "describe_table", description: "...", inputSchema: { ... } }, ...]
-}));
-
-// Handle tool execution
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  // dispatch to appropriate handler
-  return { content: [{ type: "text", text: "..." }] };
+const server = new McpServer({
+  name: "sql2text",
+  version: "1.0.0",
 });
+
+server.registerTool(
+  "describe_table",
+  {
+    description: "Get the full structure of a table",
+    inputSchema: {
+      table: z.string().describe("The table name"),
+      database: z.string().optional().describe("Optional database name"),
+    },
+  },
+  async ({ table, database }) => {
+    const info = await driver.describeTable(table, database);
+    return { content: [{ type: "text", text: formatTable(info) }] };
+  }
+);
 ```
 
-Unlike the deprecated `server.tool(name, desc, schema, fn)` convenience wrapper, this uses the same pattern as the [official MCP documentation](https://modelcontextprotocol.info/zh-cn/docs/concepts/tools/#%e5%ae%9e%e7%8e%b0%e5%b7%a5%e5%85%b7) and is compatible with all MCP clients.
+This replaces both the deprecated `server.tool()` shorthand and the deprecated low-level `Server` + `setRequestHandler` pattern. Zod schemas provide type-safe parameter parsing, automatic JSON Schema generation (`$schema`, `additionalProperties: false`), and built-in validation.
 
 ## Quick Start
 

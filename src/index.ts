@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { MySQLDriver } from "./drivers/mysql.js";
@@ -40,17 +40,10 @@ async function main() {
       `[sql2text] Connected to ${primaryConnection.name} (${primaryConnection.type})`
     );
 
-    const server = new Server(
-      {
-        name: "sql2text",
-        version: "1.0.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
+    const server = new McpServer({
+      name: "sql2text",
+      version: "1.0.0",
+    });
 
     registerTools(server, driver, config.settings);
 
