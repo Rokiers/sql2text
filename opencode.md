@@ -30,7 +30,9 @@ sql2text/
 ├── README.md                 # User-facing documentation with Mermaid diagrams
 ├── .gitignore                # Ignores: node_modules/, dist/, config.json, clusters.json, *.log
 └── src/
-    ├── index.ts              # Entry point — loads config + clusters, creates driver, starts MCP server
+    ├── transports/
+    │   └── http.ts           # HTTP server with SSE transport + Bearer token auth middleware
+    ├── index.ts              # Entry point — loads config + clusters, creates driver, starts stdio or HTTP server
     ├── server.ts             # Registers all 13 MCP tools on the McpServer instance
     ├── config.ts             # Config loading & Zod validation (JSON file, env var support)
     ├── analysis/
@@ -139,8 +141,28 @@ Key points:
 4. Creates `McpServer` instance
 5. Loads clusters via `loadClusters(settings.clustersPath)` (returns `null` if no file)
 6. Calls `registerTools(server, driver, settings, clusters)` to register all 13 tools
-7. Connects via `StdioServerTransport` (stdin/stdout JSON-RPC)
-8. Handles SIGINT/SIGTERM for graceful shutdown
+7. Resolves mode: `--mode http` CLI arg → HTTP; `apiKey` in config → HTTP; otherwise stdio
+8. **HTTP mode**: starts HTTP server listening on `host:port`. SSE connections call `server.connect(transport)` per session.
+9. **Stdio mode**: creates `StdioServerTransport`, calls `server.connect()`, blocks on stdin/stdout
+10. Handles SIGINT/SIGTERM for graceful shutdown
+
+### Transport Layer (`src/transports/`)
+
+**HTTP transport** (`http.ts`):
+- Creates a Node.js native HTTP server (no Express dependency)
+- Uses `SSEServerTransport` from `@modelcontextprotocol/sdk/server/sse.js`
+- Routes:
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/health` | No | Health check, returns `{"status":"ok"}` |
+| GET | `/sse` | Bearer Token | Establishes SSE connection, returns session ID |
+| POST | `/messages?sessionId=xxx` | Bearer Token | Receives MCP JSON-RPC messages |
+| DELETE | `/sse` | Bearer Token | Closes an active SSE session |
+
+- CORS headers set for `*` origin (localhost-safe)
+- Session store: `Map<string, SSEServerTransport>` — one transport per active SSE connection
+- Each new SSE request gets its own transport instance; `McpServer.connect()` handles multi-session correctly
 
 ### Driver Layer (`src/drivers/`)
 
@@ -258,16 +280,78 @@ All tools return `{ content: [{ type: "text", text: string }] }` via the `textRe
 - SQL validation runs before every user-initiated query (including profiler queries)
 - `multipleStatements: false` is set at the MySQL driver level as an additional guard
 
-## MCP Integration
+## Running Modes
 
-The server communicates via **stdio** (stdin/stdout) using JSON-RPC as defined by the MCP specification. To integrate with an MCP client:
+### Mode detection
+
+| Condition | Mode | Description |
+|---|---|---|
+| `apiKey` set in config | HTTP | Automatic — HTTP server starts |
+| `--mode http` CLI arg | HTTP | Force HTTP mode (apiKey must be set in config) |
+| `--mode stdio` CLI arg | Stdio | Force stdio mode (even if apiKey is set) |
+| Neither | Stdio | Default — subprocess mode |
+
+### Stdio mode (default)
+
+```bash
+node dist/index.js
+# or: node dist/index.js --mode stdio
+```
+
+The server runs as a subprocess, communicating via stdin/stdout. No network port. No auth needed (OS pipe is the security boundary).
+
+### HTTP mode
+
+```bash
+node dist/index.js
+# Requires "apiKey" in config.json settings
+# Automatically starts HTTP server on host:port
+
+# Or explicitly:
+node dist/index.js --mode http
+```
+
+The server runs independently, listening on a port. Multiple clients can connect simultaneously. Routes:
+
+```
+GET  /health                 → {"status":"ok"}
+GET  /sse                    → SSE stream (MCP)
+POST /messages?sessionId=xxx → JSON-RPC messages
+DELETE /sse                  → Close session (send Mcp-Session-Id header)
+```
+
+## MCP Client Configuration
+
+### opencode (stdio — default)
 
 ```json
 {
-  "type": "local",
-  "command": ["node", "/absolute/path/to/sql2text/dist/index.js"],
-  "environment": {
-    "SQL2TEXT_CONFIG": "/absolute/path/to/config.json"
+  "mcp": {
+    "sql2text": {
+      "type": "local",
+      "command": ["node", "/absolute/path/to/sql2text/dist/index.js"],
+      "environment": {
+        "SQL2TEXT_CONFIG": "/absolute/path/to/config.json"
+      }
+    }
   }
 }
 ```
+
+### opencode (HTTP/SSE — remote)
+
+```json
+{
+  "mcp": {
+    "sql2text": {
+      "type": "remote",
+      "url": "http://127.0.0.1:3100/sse",
+      "headers": {
+        "Authorization": "Bearer your-secret-api-key-here"
+      }
+    }
+  }
+}
+```
+
+**Note**: `Bearer` prefix is required in the Authorization header. The value after `Bearer ` must match the `apiKey` in `config.json`.

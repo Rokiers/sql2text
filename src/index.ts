@@ -8,6 +8,22 @@ import { SQLiteDriver } from "./drivers/sqlite.js";
 import type { DatabaseDriver } from "./drivers/base.js";
 import { registerTools } from "./server.js";
 import { loadClusters } from "./analysis/clusters.js";
+import { createHttpServer } from "./transports/http.js";
+
+function parseModeArg(): "http" | "stdio" | null {
+  const i = process.argv.indexOf("--mode");
+  if (i === -1) return null;
+  const val = process.argv[i + 1];
+  if (val === "http" || val === "stdio") return val;
+  return null;
+}
+
+function resolveMode(configApiKey?: string): "http" | "stdio" {
+  const arg = parseModeArg();
+  if (arg) return arg;
+  if (configApiKey) return "http";
+  return "stdio";
+}
 
 async function main() {
   const config = loadConfig();
@@ -46,26 +62,51 @@ async function main() {
       version: "1.0.0",
     });
 
-    registerTools(server, driver, config.settings, loadClusters(config.settings.clustersPath));
+    const clusters = loadClusters(config.settings.clustersPath);
+    registerTools(server, driver, config.settings, clusters);
 
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
+    const mode = resolveMode(config.settings.apiKey);
 
-    console.error("[sql2text] MCP Server ready");
-
-    process.on("SIGINT", async () => {
+    const cleanup = async () => {
       console.error("[sql2text] Shutting down...");
       await driver.disconnect();
       await server.close();
       process.exit(0);
-    });
+    };
 
-    process.on("SIGTERM", async () => {
-      console.error("[sql2text] Shutting down...");
-      await driver.disconnect();
-      await server.close();
-      process.exit(0);
-    });
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+
+    if (mode === "http") {
+      const apiKey = config.settings.apiKey!;
+      const { port, host } = config.settings;
+
+      const httpServer = createHttpServer(server, { port, host, apiKey });
+
+      await new Promise<void>((resolve) => {
+        httpServer.listen(port, host, () => {
+          console.error(
+            `[sql2text] HTTP server listening on http://${host}:${port}`
+          );
+          console.error(`[sql2text] SSE endpoint: http://${host}:${port}/sse`);
+          console.error(
+            `[sql2text] Health check: http://${host}:${port}/health`
+          );
+          resolve();
+        });
+      });
+
+      process.on("SIGINT", () => {
+        httpServer.close(() => cleanup());
+      });
+      process.on("SIGTERM", () => {
+        httpServer.close(() => cleanup());
+      });
+    } else {
+      const transport = new StdioServerTransport();
+      await server.connect(transport);
+      console.error("[sql2text] MCP Server ready (stdio)");
+    }
   } catch (err) {
     console.error(
       `[sql2text] Failed to start: ${err instanceof Error ? err.message : String(err)}`

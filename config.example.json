@@ -19,6 +19,9 @@
     "defaultLimit": 100,
     "queryTimeoutMs": 30000,
     "logQueries": false,
-    "clustersPath": "./clusters.json"
+    "clustersPath": "./clusters.json",
+    "port": 3100,
+    "host": "127.0.0.1",
+    "apiKey": "your-secret-api-key-here"
   }
 }

@@ -28,6 +28,9 @@ const SettingsSchema = z.object({
   queryTimeoutMs: z.number().default(30000),
   logQueries: z.boolean().default(false),
   clustersPath: z.string().optional(),
+  port: z.number().default(3100),
+  host: z.string().default("127.0.0.1"),
+  apiKey: z.string().optional(),
 });
 
 const AppConfigSchema = z.object({
@@ -36,6 +39,8 @@ const AppConfigSchema = z.object({
     defaultLimit: 100,
     queryTimeoutMs: 30000,
     logQueries: false,
+    port: 3100,
+    host: "127.0.0.1",
   }),
 });
 
