@@ -2,11 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { DatabaseDriver } from "./drivers/base.js";
 import type { AppSettings } from "./config.js";
+import type { ClusterManager } from "./analysis/clusters.js";
+import { profileTable } from "./analysis/profiler.js";
+import type { ColumnProfile } from "./analysis/profiler.js";
 
 function registerTools(
   server: McpServer,
   driver: DatabaseDriver,
-  settings: AppSettings
+  settings: AppSettings,
+  clusters: ClusterManager | null
 ) {
   const label = `[${driver.name}:${driver.type}]`;
 
@@ -460,6 +464,142 @@ function registerTools(
       return textResult(
         `Query suggestions for '${table}':\n\n${suggestions.join("\n")}`
       );
+    }
+  );
+
+  // ── list_clusters ───
+  server.registerTool(
+    "list_clusters",
+    { description: "List all configured business clusters — groups of related tables with their relationships" },
+    async () => {
+      if (!clusters) {
+        return textResult(
+          "No business clusters configured. Create a clusters.json file to define table groupings."
+        );
+      }
+      const list = clusters.listClusters();
+      if (list.length === 0) {
+        return textResult("No clusters defined in clusters.json");
+      }
+      const lines = [`Business Clusters (${list.length})`, ""];
+      for (const c of list) {
+        lines.push(`[${c.name}] ${c.description || ""} (${c.tableCount} tables)`);
+        for (const t of c.tables) {
+          lines.push(`  • ${t}`);
+        }
+        lines.push("");
+      }
+      return textResult(lines.join("\n"));
+    }
+  );
+
+  // ── get_table_cluster ───
+  server.registerTool(
+    "get_table_cluster",
+    {
+      description: "Get all business clusters a table belongs to, including related tables and their field-level relationships",
+      inputSchema: {
+        table: z.string().describe("The table name to look up"),
+      },
+    },
+    async ({ table }) => {
+      if (!clusters) {
+        return textResult(
+          "No business clusters configured. Create a clusters.json file to define table groupings."
+        );
+      }
+      const results = clusters.getTableCluster(table);
+      if (results.length === 0) {
+        return textResult(
+          `Table '${table}' is not assigned to any business cluster.`
+        );
+      }
+      const lines = [`'${table}' belongs to ${results.length} cluster(s):`, ""];
+      for (const cluster of results) {
+        lines.push(`[${cluster.name}] ${cluster.description || ""}`);
+        for (const [tName, tInfo] of Object.entries(cluster.tables)) {
+          const marker = tName === table ? " ◀ current" : "";
+          lines.push(`  ${tName}${marker}${tInfo.description ? ` — ${tInfo.description}` : ""}`);
+          if (tInfo.refs) {
+            for (const [field, targets] of Object.entries(tInfo.refs)) {
+              for (const target of targets) {
+                lines.push(`    ${tName}.${field} → ${target}`);
+              }
+            }
+          }
+        }
+        lines.push("");
+      }
+      return textResult(lines.join("\n"));
+    }
+  );
+
+  // ── get_column_profile ───
+  server.registerTool(
+    "get_column_profile",
+    {
+      description: "Profile column data — value distribution, numeric stats, date ranges, or text length/samples. Filters out NULL and empty strings for text columns.",
+      inputSchema: {
+        table: z.string().describe("The table name"),
+        column: z
+          .string()
+          .optional()
+          .describe("Specific column name. If omitted, profiles all columns."),
+        database: z.string().optional().describe("Optional database name"),
+      },
+    },
+    async ({ table, column, database }) => {
+      const profiles = await profileTable(driver, table, column);
+      const lines: string[] = [];
+
+      for (const p of profiles) {
+        lines.push(`${table}.${p.name} (${p.type})`);
+        if (p.comment) lines.push(`  comment: ${p.comment}`);
+
+        const validCount = p.totalRows - p.nullCount - p.emptyCount;
+        const parts = [`total: ${p.totalRows}`, `NULL: ${p.nullCount}`];
+        if (p.emptyCount > 0) parts.push(`empty: ${p.emptyCount}`);
+        parts.push(`valid: ${validCount}`);
+        lines.push(`  ${parts.join(", ")}`);
+
+        if (p.distribution && p.distribution.length > 0) {
+          lines.push("  distribution:");
+          for (const d of p.distribution) {
+            const pct =
+              validCount > 0
+                ? ` (${((d.count / validCount) * 100).toFixed(1)}%)`
+                : "";
+            lines.push(`    ${d.value} → ${d.count}${pct}`);
+          }
+        }
+
+        if (p.numericStats) {
+          lines.push(
+            `  stats: min=${p.numericStats.min}, max=${p.numericStats.max}, avg=${p.numericStats.avg}`
+          );
+        }
+
+        if (p.dateRange) {
+          lines.push(`  range: ${p.dateRange.min} ~ ${p.dateRange.max}`);
+        }
+
+        if (p.lengthStats) {
+          lines.push(
+            `  length: avg=${p.lengthStats.avgLength}, min=${p.lengthStats.minLength}, max=${p.lengthStats.maxLength}`
+          );
+        }
+
+        if (p.samples && p.samples.length > 0) {
+          lines.push("  samples (first 100 chars):");
+          for (let i = 0; i < p.samples.length; i++) {
+            lines.push(`    ${i + 1}. ${p.samples[i]}`);
+          }
+        }
+
+        lines.push("");
+      }
+
+      return textResult(lines.join("\n"));
     }
   );
 }

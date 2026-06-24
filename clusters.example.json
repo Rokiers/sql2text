@@ -1,0 +1,69 @@
+{
+  "用户系统": {
+    "description": "用户、角色、权限管理",
+    "tables": {
+      "user": {
+        "description": "用户主表",
+        "refs": {
+          "id": ["user_role.user_id", "order.buyer_id", "login_log.uid"]
+        }
+      },
+      "role": {
+        "description": "角色表",
+        "refs": {
+          "id": ["user_role.role_id", "role_permission.role_id"]
+        }
+      },
+      "permission": {
+        "description": "权限表",
+        "refs": {
+          "code": ["role_permission.perm_code"]
+        }
+      },
+      "user_role": {
+        "description": "用户-角色关联表",
+        "refs": {
+          "user_id": ["user.id"],
+          "role_id": ["role.id"]
+        }
+      },
+      "role_permission": {
+        "description": "角色-权限关联表",
+        "refs": {
+          "role_id": ["role.id"],
+          "perm_code": ["permission.code"]
+        }
+      }
+    }
+  },
+  "游戏系统": {
+    "description": "游戏及其配置、物品、规格",
+    "tables": {
+      "g_game": {
+        "description": "游戏主表",
+        "refs": {
+          "id": ["g_game_config.game_id", "g_game_item.game_id", "order.game_id"]
+        }
+      },
+      "g_game_config": {
+        "description": "游戏配置",
+        "refs": {
+          "game_id": ["g_game.id"]
+        }
+      },
+      "g_game_item": {
+        "description": "游戏物品",
+        "refs": {
+          "game_id": ["g_game.id"],
+          "spec_code": ["g_item_spec.code"]
+        }
+      },
+      "g_item_spec": {
+        "description": "物品规格",
+        "refs": {
+          "code": ["g_game_item.spec_code"]
+        }
+      }
+    }
+  }
+}

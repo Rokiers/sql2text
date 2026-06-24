@@ -27,6 +27,7 @@ const SettingsSchema = z.object({
   defaultLimit: z.number().default(100),
   queryTimeoutMs: z.number().default(30000),
   logQueries: z.boolean().default(false),
+  clustersPath: z.string().optional(),
 });
 
 const AppConfigSchema = z.object({

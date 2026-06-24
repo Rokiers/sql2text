@@ -7,6 +7,7 @@ import { MySQLDriver } from "./drivers/mysql.js";
 import { SQLiteDriver } from "./drivers/sqlite.js";
 import type { DatabaseDriver } from "./drivers/base.js";
 import { registerTools } from "./server.js";
+import { loadClusters } from "./analysis/clusters.js";
 
 async function main() {
   const config = loadConfig();
@@ -45,7 +46,7 @@ async function main() {
       version: "1.0.0",
     });
 
-    registerTools(server, driver, config.settings);
+    registerTools(server, driver, config.settings, loadClusters(config.settings.clustersPath));
 
     const transport = new StdioServerTransport();
     await server.connect(transport);

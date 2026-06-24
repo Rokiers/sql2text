@@ -18,6 +18,7 @@
   "settings": {
     "defaultLimit": 100,
     "queryTimeoutMs": 30000,
-    "logQueries": false
+    "logQueries": false,
+    "clustersPath": "./clusters.json"
   }
 }
