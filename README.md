@@ -257,6 +257,94 @@ flowchart LR
 
 **Read-only safety**: Even though the AI model decides what tools to call, the sql2text MCP Server enforces safety on the server side. If the AI were to hallucinate a `DROP TABLE` call, the readonly guard would reject it before it ever reaches the database.
 
+## Deployment
+
+### stdio mode (opencode subprocess, default)
+
+No extra setup — opencode automatically spawns the server when configured:
+
+```json
+// ~/.config/opencode/opencode.json
+{
+  "mcp": {
+    "sql2text": {
+      "type": "local",
+      "command": ["node", "/path/to/sql2text/dist/index.js"],
+      "environment": { "SQL2TEXT_CONFIG": "/path/to/sql2text/config.json" }
+    }
+  }
+}
+```
+
+### HTTP mode (standalone server, LAN accessible)
+
+1. Add `apiKey`, `port`, `host` to `config.json` settings:
+
+```json
+{
+  "settings": {
+    "port": 3100,
+    "host": "0.0.0.0",
+    "apiKey": "your-secret-key"
+  }
+}
+```
+
+2. Build and start:
+
+```bash
+cd /path/to/sql2text
+npx tsc
+nohup node dist/index.js > logs/app.log 2>&1 &
+```
+
+3. Manage the process:
+
+```bash
+# View running process
+ps aux | grep "dist/index.js"
+# Windows: tasklist | findstr node
+
+# Watch live logs
+tail -f logs/app.log
+
+# Stop
+kill <PID>
+```
+
+4. Verify:
+
+```bash
+# Health check (no auth)
+curl http://localhost:3100/health
+
+# Tool call (with auth)
+curl -H "Authorization: Bearer your-secret-key" http://localhost:3100/sse
+```
+
+**opencode remote client config:**
+
+```json
+{
+  "mcp": {
+    "sql2text": {
+      "type": "remote",
+      "url": "http://192.168.1.100:3100/sse",
+      "headers": { "Authorization": "Bearer your-secret-key" }
+    }
+  }
+}
+```
+
+### pm2 (recommended for production)
+
+```bash
+npm install -g pm2
+pm2 start dist/index.js --name sql2text
+pm2 save && pm2 startup   # auto-restart on boot
+pm2 logs sql2text          # live logs
+```
+
 ## Security
 
 - **Whitelist**: SELECT, SHOW, DESCRIBE, EXPLAIN, USE, SET, WITH (CTE)
