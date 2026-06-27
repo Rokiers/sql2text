@@ -88,7 +88,7 @@ async function main() {
           console.error(
             `[sql2text] HTTP server listening on http://${host}:${port}`
           );
-          console.error(`[sql2text] SSE endpoint: http://${host}:${port}/sse`);
+          console.error(`[sql2text] MCP endpoint: http://${host}:${port}/sse`);
           console.error(
             `[sql2text] Health check: http://${host}:${port}/health`
           );

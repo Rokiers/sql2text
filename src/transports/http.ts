@@ -1,6 +1,7 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 interface HttpServerOptions {
   port: number;
@@ -8,17 +9,12 @@ interface HttpServerOptions {
   apiKey: string;
 }
 
-const transports = new Map<string, SSEServerTransport>();
-
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
 }
 
-function authMiddleware(
-  apiKey: string,
-  req: http.IncomingMessage
-): boolean {
+function authMiddleware(apiKey: string, req: http.IncomingMessage): boolean {
   const auth = req.headers.authorization;
   if (!auth) return false;
   if (!auth.startsWith("Bearer ")) return false;
@@ -40,18 +36,16 @@ export function createHttpServer(
 ): http.Server {
   const { port, host, apiKey } = options;
 
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+  });
+
   const httpServer = http.createServer(
     async (req: http.IncomingMessage, res: http.ServerResponse) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET, POST, DELETE, OPTIONS"
-      );
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Authorization, Mcp-Session-Id"
-      );
-      res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, Accept");
+      res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id, Content-Type");
 
       if (req.method === "OPTIONS") {
         res.writeHead(204);
@@ -60,15 +54,14 @@ export function createHttpServer(
       }
 
       const url = req.url || "/";
-      const urlObj = new URL(url, `http://${host}:${port}`);
 
       // Health check — no auth required
-      if (urlObj.pathname === "/health" && req.method === "GET") {
+      if (url === "/health" && req.method === "GET") {
         sendJson(res, 200, { status: "ok", mode: "http", driver: "connected" });
         return;
       }
 
-      // Auth check for all other endpoints
+      // Auth check for all MCP endpoints
       if (!authMiddleware(apiKey, req)) {
         sendJson(res, 401, {
           error: "Unauthorized",
@@ -78,59 +71,16 @@ export function createHttpServer(
       }
 
       try {
-        // SSE endpoint
-        if (urlObj.pathname === "/sse" && req.method === "GET") {
-          const transport = new SSEServerTransport("/messages", res);
-          transports.set(transport.sessionId, transport);
-
-          res.on("close", () => {
-            transports.delete(transport.sessionId);
-          });
-
-          await transport.start();
-          await server.connect(transport);
-          return;
+        // Parse body for POST requests
+        let parsedBody: unknown = undefined;
+        if (req.method === "POST" && url === "/sse") {
+          const raw = await readBody(req);
+          if (raw) parsedBody = JSON.parse(raw);
         }
 
-        // DELETE session endpoint
-        if (urlObj.pathname === "/sse" && req.method === "DELETE") {
-          const sessionId = req.headers["mcp-session-id"] as string;
-          if (sessionId && transports.has(sessionId)) {
-            const transport = transports.get(sessionId)!;
-            transports.delete(sessionId);
-            await transport.close();
-            sendJson(res, 200, { message: "Session closed" });
-          } else {
-            sendJson(res, 404, { error: "Session not found" });
-          }
-          return;
-        }
-
-        // Message endpoint
-        if (urlObj.pathname === "/messages" && req.method === "POST") {
-          const sessionId = urlObj.searchParams.get("sessionId");
-          if (!sessionId) {
-            sendJson(res, 400, { error: "Missing sessionId query parameter" });
-            return;
-          }
-
-          const transport = transports.get(sessionId);
-          if (!transport) {
-            sendJson(res, 404, {
-              error: "Session not found",
-              message: "No active SSE connection for this sessionId. Call GET /sse first.",
-            });
-            return;
-          }
-
-          const body = await readBody(req);
-          const parsed = body ? JSON.parse(body) : undefined;
-          await transport.handlePostMessage(req, res, parsed);
-          return;
-        }
-
-        // 404
-        sendJson(res, 404, { error: "Not found" });
+        // Delegate everything to StreamableHTTPServerTransport
+        // It handles GET (SSE stream), POST (JSON-RPC), DELETE (session close) automatically
+        await transport.handleRequest(req, res, parsedBody);
       } catch (err) {
         console.error(
           `[sql2text] HTTP error: ${err instanceof Error ? err.message : String(err)}`
@@ -141,6 +91,11 @@ export function createHttpServer(
       }
     }
   );
+
+  // Connect MCP server to transport
+  server.connect(transport).then(() => {
+    console.error("[sql2text] MCP Server connected to Streamable HTTP transport");
+  });
 
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
