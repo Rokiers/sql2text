@@ -3,6 +3,11 @@ import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
+function log(msg: string) {
+  const ts = new Date().toISOString().replace("T", " ").substring(0, 19);
+  console.error(`[${ts}] ${msg}`);
+}
+
 interface HttpServerOptions {
   port: number;
   host: string;
@@ -82,8 +87,8 @@ export function createHttpServer(
         // It handles GET (SSE stream), POST (JSON-RPC), DELETE (session close) automatically
         await transport.handleRequest(req, res, parsedBody);
       } catch (err) {
-        console.error(
-          `[sql2text] HTTP error: ${err instanceof Error ? err.message : String(err)}`
+        log(
+          `HTTP error: ${err instanceof Error ? err.message : String(err)}`
         );
         if (!res.headersSent) {
           sendJson(res, 500, { error: "Internal server error" });
@@ -94,13 +99,13 @@ export function createHttpServer(
 
   // Connect MCP server to transport
   server.connect(transport).then(() => {
-    console.error("[sql2text] MCP Server connected to Streamable HTTP transport");
+    log("MCP Server connected to Streamable HTTP transport");
   });
 
   httpServer.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      console.error(
-        `[sql2text] Port ${port} is already in use. Choose a different port or stop the other process.`
+      log(
+        `Port ${port} is already in use. Choose a different port or stop the other process.`
       );
       process.exit(1);
     }

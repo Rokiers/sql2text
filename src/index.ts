@@ -10,6 +10,11 @@ import { registerTools } from "./server.js";
 import { loadClusters } from "./analysis/clusters.js";
 import { createHttpServer } from "./transports/http.js";
 
+function log(msg: string) {
+  const ts = new Date().toISOString().replace("T", " ").substring(0, 19);
+  console.error(`[${ts}] ${msg}`);
+}
+
 function parseModeArg(): "http" | "stdio" | null {
   const i = process.argv.indexOf("--mode");
   if (i === -1) return null;
@@ -53,9 +58,7 @@ async function main() {
 
   try {
     await driver.connect();
-    console.error(
-      `[sql2text] Connected to ${primaryConnection.name} (${primaryConnection.type})`
-    );
+    log(`Connected to ${primaryConnection.name} (${primaryConnection.type})`);
 
     const server = new McpServer({
       name: "sql2text",
@@ -68,7 +71,7 @@ async function main() {
     const mode = resolveMode(config.settings.apiKey);
 
     const cleanup = async () => {
-      console.error("[sql2text] Shutting down...");
+      log("Shutting down...");
       await driver.disconnect();
       await server.close();
       process.exit(0);
@@ -85,13 +88,9 @@ async function main() {
 
       await new Promise<void>((resolve) => {
         httpServer.listen(port, host, () => {
-          console.error(
-            `[sql2text] HTTP server listening on http://${host}:${port}`
-          );
-          console.error(`[sql2text] MCP endpoint: http://${host}:${port}/sse`);
-          console.error(
-            `[sql2text] Health check: http://${host}:${port}/health`
-          );
+          log(`HTTP server listening on http://${host}:${port}`);
+          log(`MCP endpoint: http://${host}:${port}/sse`);
+          log(`Health check: http://${host}:${port}/health`);
           resolve();
         });
       });
@@ -105,11 +104,11 @@ async function main() {
     } else {
       const transport = new StdioServerTransport();
       await server.connect(transport);
-      console.error("[sql2text] MCP Server ready (stdio)");
+      log("MCP Server ready (stdio)");
     }
   } catch (err) {
-    console.error(
-      `[sql2text] Failed to start: ${err instanceof Error ? err.message : String(err)}`
+    log(
+      `Failed to start: ${err instanceof Error ? err.message : String(err)}`
     );
     await driver.disconnect().catch(() => {});
     process.exit(1);
@@ -117,8 +116,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(
-    `[sql2text] Fatal error: ${err instanceof Error ? err.message : String(err)}`
+  log(
+    `Fatal error: ${err instanceof Error ? err.message : String(err)}`
   );
   process.exit(1);
 });
