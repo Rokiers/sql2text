@@ -1,5 +1,4 @@
 import http from "node:http";
-import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
@@ -41,9 +40,7 @@ export function createHttpServer(
 ): http.Server {
   const { port, host, apiKey } = options;
 
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-  });
+  const transport = new StreamableHTTPServerTransport();
 
   const httpServer = http.createServer(
     async (req: http.IncomingMessage, res: http.ServerResponse) => {
